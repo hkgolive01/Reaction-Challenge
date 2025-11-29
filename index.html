@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Reaction Challenge</title>
+    <title>Reaction Challenge - Anti-Cheat</title>
     <script src="https://html2canvas.hertzen.com/dist/html2canvas.min.js"></script>
     <style>
         :root {
@@ -12,6 +12,7 @@
             --bg-color: #f0f2f5;
             --text-color: #2f3542;
             --card-bg: #ffffff;
+            --penalty-color: #ff6b81;
         }
 
         body {
@@ -23,8 +24,9 @@
             align-items: center;
             min-height: 100vh;
             margin: 0;
-            padding: 20px 10px; /* 左右留一點緩衝 */
+            padding: 20px 10px;
             box-sizing: border-box;
+            user-select: none; /* 防止連點選取文字 */
         }
 
         h1, h2, h3 {
@@ -37,7 +39,7 @@
             flex-direction: column;
             align-items: center;
             width: 100%;
-            max-width: 480px; /* 限制整體寬度 */
+            max-width: 480px;
         }
 
         .status-bar {
@@ -49,6 +51,7 @@
             display: flex;
             align-items: center;
             justify-content: center;
+            white-space: nowrap;
         }
 
         /* 9宮格容器 */
@@ -64,6 +67,20 @@
             max-width: 360px;
             aspect-ratio: 1 / 1;
             margin-bottom: 20px;
+            transition: background-color 0.2s;
+        }
+
+        /* 犯規時背景閃爍紅色 */
+        .grid-container.penalty-flash {
+            background-color: var(--penalty-color);
+            animation: shake 0.4s cubic-bezier(.36,.07,.19,.97) both;
+        }
+
+        @keyframes shake {
+            10%, 90% { transform: translate3d(-1px, 0, 0); }
+            20%, 80% { transform: translate3d(2px, 0, 0); }
+            30%, 50%, 70% { transform: translate3d(-4px, 0, 0); }
+            40%, 60% { transform: translate3d(4px, 0, 0); }
         }
 
         /* 單個格子 */
@@ -123,10 +140,8 @@
         }
         #screenshot-btn:hover { background-color: #2f3542; }
 
-        /* --- 截圖區域樣式修正 --- */
         #capture-area {
             width: 100%;
-            /* 這裡設定 padding 和 border-box 很重要，防止內容貼邊被切掉 */
             box-sizing: border-box; 
             padding: 20px;
             background-color: var(--bg-color); 
@@ -139,11 +154,10 @@
             border-radius: 16px;
             box-shadow: 0 4px 12px rgba(0,0,0,0.05);
             width: 100%;
-            box-sizing: border-box; /* 確保 padding 不會撐破寬度 */
+            box-sizing: border-box;
             margin-bottom: 20px;
         }
 
-        /* 預設隱藏本次結果 */
         #current-result-board { display: none; }
 
         .result-item {
@@ -154,11 +168,15 @@
             font-feature-settings: "tnum";
         }
 
-        /* 用於標記被剔除的最高/最低分 (樣式可選) */
         .result-item.excluded {
             color: #b2bec3;
             text-decoration: line-through;
             font-size: 0.9em;
+        }
+
+        .result-item.penalty-text {
+            color: var(--secondary-color);
+            font-weight: bold;
         }
         
         .average-score-box {
@@ -171,7 +189,6 @@
         .average-score-box strong { color: var(--secondary-color); font-size: 1.5em; }
         .average-note { font-size: 0.8rem; color: #747d8c; margin-top: 5px; }
 
-        /* 排行榜 */
         .leaderboard-list { list-style: none; padding: 0; margin: 0; }
         
         .leaderboard-item {
@@ -240,16 +257,21 @@
     const screenshotBtn = document.getElementById('screenshot-btn');
     const captureArea = document.getElementById('capture-area');
 
-    // 修改: 總回合數改為 7
     const TOTAL_ROUNDS = 7;
     let currentRound = 0;
     let reactionTimes = [];
     let startTime = 0;
-    let isWaitingForClick = false;
+    
+    // 遊戲階段狀態管理
+    // 'idle': 閒置中
+    // 'waiting': 等待亮燈 (此時點擊 = 偷跑)
+    // 'active': 燈已亮 (此時點擊 = 紀錄成績)
+    // 'processing': 正在處理轉場 (防止連點)
+    let gamePhase = 'idle'; 
+    
     let activeCellIndex = -1;
     let timer = null;
-    // 更改 Key 以區隔舊版成績 (因為計算方式不同了)
-    const STORAGE_KEY = 'reaction_game_scores_v2_trimmed'; 
+    const STORAGE_KEY = 'reaction_game_scores_v3_penalty'; // 更新 Key
 
     // --- 初始化 ---
     function init() {
@@ -262,6 +284,7 @@
         for (let i = 0; i < 9; i++) {
             let cell = document.createElement('div');
             cell.classList.add('cell');
+            // 改用 pointerdown 以求最快反應
             cell.addEventListener('pointerdown', (e) => {
                 e.preventDefault(); 
                 handleCellClick(i);
@@ -290,14 +313,19 @@
         }
         currentRound++;
         statusText.innerHTML = `<span style="color:#747d8c">Round ${currentRound}/${TOTAL_ROUNDS}</span> - 等待亮燈...`;
-        isWaitingForClick = false;
+        
+        // 進入等待階段 (偷跑偵測開始)
+        gamePhase = 'waiting';
         document.querySelectorAll('.cell').forEach(c => c.classList.remove('active'));
 
-        const randomDelay = Math.floor(Math.random() * 1700) + 800;
+        const randomDelay = Math.floor(Math.random() * 1700) + 800; // 0.8s - 2.5s
         timer = setTimeout(activateRandomCell, randomDelay);
     }
 
     function activateRandomCell() {
+        // 如果狀態不是 waiting (可能已經因為偷跑被取消)，則不執行
+        if (gamePhase !== 'waiting') return;
+
         const cells = document.querySelectorAll('.cell');
         let randomIndex;
         do { randomIndex = Math.floor(Math.random() * 9); } 
@@ -305,51 +333,85 @@
         
         activeCellIndex = randomIndex;
         cells[randomIndex].classList.add('active');
+        
         startTime = performance.now();
-        isWaitingForClick = true;
+        gamePhase = 'active'; // 進入活躍階段 (可以點擊)
         statusText.innerHTML = `<span style="color: var(--secondary-color)">🔥 快按! 🔥</span>`;
     }
 
     function handleCellClick(index) {
-        if (!isWaitingForClick) return;
-        if (index === activeCellIndex) {
-            const endTime = performance.now();
-            const reactionTime = Math.round(endTime - startTime);
-            reactionTimes.push(reactionTime);
-            isWaitingForClick = false;
-            document.querySelectorAll('.cell')[activeCellIndex].classList.remove('active');
-            statusText.textContent = `${reactionTime} ms`;
-            setTimeout(nextRound, 400);
+        // 1. 偷跑判斷 (Waiting 階段點擊任意格子)
+        if (gamePhase === 'waiting') {
+            triggerPenalty();
+            return;
         }
+
+        // 2. 正常點擊判斷 (Active 階段點擊正確格子)
+        if (gamePhase === 'active') {
+            if (index === activeCellIndex) {
+                const endTime = performance.now();
+                const reactionTime = Math.round(endTime - startTime);
+                recordSuccess(reactionTime);
+            }
+        }
+        
+        // 如果是 Active 階段但點錯格子? 
+        // 依據通常慣例，這裡不做反應，直到點對為止。
+        // 若要更加嚴格，也可以在這裡加入懲罰，但目前題目僅要求 "預判(偷跑)" 機制。
+    }
+
+    // 觸發偷跑懲罰
+    function triggerPenalty() {
+        clearTimeout(timer); // 清除原本要亮燈的計時器
+        gamePhase = 'processing'; // 鎖定狀態防止連點
+
+        // 視覺回饋
+        gridContainer.classList.add('penalty-flash');
+        setTimeout(() => gridContainer.classList.remove('penalty-flash'), 400);
+
+        // 紀錄 1000ms
+        const penaltyTime = 1000;
+        reactionTimes.push(penaltyTime);
+        
+        statusText.innerHTML = `<span style="color: var(--secondary-color)">🚫 偷跑犯規! (+1000ms)</span>`;
+        
+        // 延遲後進入下一局
+        setTimeout(nextRound, 1000);
+    }
+
+    // 紀錄成功點擊
+    function recordSuccess(time) {
+        gamePhase = 'processing'; // 鎖定
+        reactionTimes.push(time);
+        
+        document.querySelectorAll('.cell')[activeCellIndex].classList.remove('active');
+        statusText.textContent = `${time} ms`;
+        
+        setTimeout(nextRound, 400);
     }
 
     function endGame() {
+        gamePhase = 'idle';
         startBtn.disabled = false;
         startBtn.textContent = "再次挑戰";
         statusText.innerHTML = "🎉 測試完成!";
         showCurrentResults();
         saveAndUpdateLeaderboard();
         screenshotBtn.style.display = 'flex';
-        // 為了讓使用者看到結果，平滑滾動
         currentResultBoard.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
 
-    // --- 新增計算邏輯: 去頭去尾平均 ---
+    // --- 計算邏輯: 去頭去尾平均 ---
     function calculateTrimmedScore(times) {
         if (times.length < 3) return { avg: 0, minIdx: -1, maxIdx: -1 };
         
-        // 找出最大值和最小值的索引 (如果有多個相同值，這裡只抓第一個遇到的)
         let minVal = Math.min(...times);
         let maxVal = Math.max(...times);
         
-        // 為了在列表中標示，我們需要具體的 index
-        // 注意：這裡只會標記第一個出現的最小值和最大值
         let minIdx = times.indexOf(minVal);
         let maxIdx = times.indexOf(maxVal);
 
-        // 複製一份陣列進行排序計算
         let sorted = [...times].sort((a, b) => a - b);
-        // 去掉頭尾
         let trimmed = sorted.slice(1, sorted.length - 1);
         let total = trimmed.reduce((a, b) => a + b, 0);
         let avg = Math.round(total / trimmed.length);
@@ -361,24 +423,28 @@
         currentResultBoard.style.display = 'block';
         resultList.innerHTML = '';
         
-        // 取得計算結果
         const { avg, minIdx, maxIdx } = calculateTrimmedScore(reactionTimes);
 
         reactionTimes.forEach((time, index) => {
             const item = document.createElement('div');
             item.classList.add('result-item');
             
-            // 標記最高和最低分 (視覺上變灰或刪除線)
+            let isPenalty = (time === 1000); // 簡單判斷是否為懲罰分數
+            
             let isExcluded = (index === minIdx || index === maxIdx);
-            if (isExcluded) {
-                item.classList.add('excluded');
-            }
+            if (isExcluded) item.classList.add('excluded');
+            if (isPenalty) item.classList.add('penalty-text');
 
             let roundText = `Round ${index + 1}`;
-            if (index === minIdx) roundText += " (最快)";
-            if (index === maxIdx) roundText += " (最慢)";
+            if (isExcluded) {
+                if (index === minIdx) roundText += " (最快)";
+                if (index === maxIdx) roundText += " (最慢)";
+            }
+            
+            let timeText = `${time} ms`;
+            if (isPenalty) timeText += " (偷跑)";
 
-            item.innerHTML = `<span>${roundText}</span> <span>${time} ms</span>`;
+            item.innerHTML = `<span>${roundText}</span> <span>${timeText}</span>`;
             resultList.appendChild(item);
         });
 
@@ -396,7 +462,6 @@
     }
 
     function saveAndUpdateLeaderboard() {
-        // 使用相同的去頭去尾邏輯計算分數
         const { avg } = calculateTrimmedScore(reactionTimes);
         
         const newScore = { avgTime: avg, timestamp: new Date().getTime() };
@@ -429,7 +494,7 @@
         });
     }
 
-    // --- 截圖功能 (修正版) ---
+    // --- 截圖功能 ---
     async function takeScreenshot() {
         const originalBtnText = screenshotBtn.innerHTML;
         screenshotBtn.innerHTML = '⏳ 處理中...';
@@ -441,11 +506,7 @@
                 backgroundColor: '#f0f2f5', 
                 useCORS: true,
                 width: captureArea.scrollWidth, 
-                height: captureArea.scrollHeight,
-                scrollX: 0,
-                scrollY: 0,
-                x: 0, 
-                y: 0
+                height: captureArea.scrollHeight
             });
 
             canvas.toBlob(async (blob) => {
