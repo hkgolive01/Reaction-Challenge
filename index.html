@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Reaction Challenge</title>
+    <script src="https://html2canvas.hertzen.com/dist/html2canvas.min.js"></script>
+    <style>
+        :root {
+            --primary-color: #2ed573;
+            --secondary-color: #ff4757;
+            --bg-color: #f0f2f5;
+            --text-color: #2f3542;
+            --card-bg: #ffffff;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px 10px; /* 左右留一點緩衝 */
+            box-sizing: border-box;
+        }
+
+        h1, h2, h3 {
+            margin: 0.5em 0;
+            text-align: center;
+        }
+
+        .main-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            width: 100%;
+            max-width: 480px; /* 限制整體寬度 */
+        }
+
+        .status-bar {
+            margin-bottom: 15px;
+            font-size: 1.3rem;
+            font-weight: bold;
+            color: #57606f;
+            height: 35px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* 9宮格容器 */
+        .grid-container {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+            background-color: #dfe4ea;
+            padding: 15px;
+            border-radius: 16px;
+            box-shadow: 0 8px 16px rgba(0,0,0,0.08);
+            width: 100%;
+            max-width: 360px;
+            aspect-ratio: 1 / 1;
+            margin-bottom: 20px;
+        }
+
+        /* 單個格子 */
+        .cell {
+            background-color: var(--card-bg);
+            border-radius: 12px;
+            cursor: pointer;
+            transition: transform 0.1s, background-color 0.15s;
+            aspect-ratio: 1 / 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .cell:active { transform: scale(0.92); }
+
+        .cell.active {
+            background-color: var(--secondary-color);
+            box-shadow: 0 0 20px rgba(255, 71, 87, 0.7);
+            border: 2px solid #fff;
+        }
+
+        .controls {
+            width: 100%;
+            display: flex;
+            justify-content: center;
+            margin-bottom: 20px;
+        }
+
+        .btn {
+            padding: 12px 30px;
+            font-size: 1.1rem;
+            font-weight: bold;
+            border: none;
+            border-radius: 30px;
+            cursor: pointer;
+            transition: all 0.2s;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+
+        #start-btn { background-color: var(--primary-color); color: white; }
+        #start-btn:hover { background-color: #26af61; transform: translateY(-2px); }
+        #start-btn:disabled { background-color: #ccc; cursor: not-allowed; transform: none; box-shadow: none;}
+
+        #screenshot-btn {
+            background-color: #3742fa;
+            color: white;
+            margin-top: 20px;
+            font-size: 0.95rem;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            justify-content: center;
+            width: 100%;
+            max-width: 300px;
+        }
+        #screenshot-btn:hover { background-color: #2f3542; }
+
+        /* --- 截圖區域樣式修正 --- */
+        #capture-area {
+            width: 100%;
+            /* 這裡設定 padding 和 border-box 很重要，防止內容貼邊被切掉 */
+            box-sizing: border-box; 
+            padding: 20px;
+            background-color: var(--bg-color); 
+            border-radius: 10px;
+        }
+
+        .results-container {
+            background: var(--card-bg);
+            padding: 20px;
+            border-radius: 16px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+            width: 100%;
+            box-sizing: border-box; /* 確保 padding 不會撐破寬度 */
+            margin-bottom: 20px;
+        }
+
+        /* 預設隱藏本次結果 */
+        #current-result-board { display: none; }
+
+        .result-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid #f1f2f6;
+            font-feature-settings: "tnum";
+        }
+
+        /* 用於標記被剔除的最高/最低分 (樣式可選) */
+        .result-item.excluded {
+            color: #b2bec3;
+            text-decoration: line-through;
+            font-size: 0.9em;
+        }
+        
+        .average-score-box {
+            margin-top: 15px;
+            padding: 15px;
+            background-color: #f1f2f6;
+            border-radius: 10px;
+            text-align: center;
+        }
+        .average-score-box strong { color: var(--secondary-color); font-size: 1.5em; }
+        .average-note { font-size: 0.8rem; color: #747d8c; margin-top: 5px; }
+
+        /* 排行榜 */
+        .leaderboard-list { list-style: none; padding: 0; margin: 0; }
+        
+        .leaderboard-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 5px;
+            border-bottom: 1px solid #eee;
+            font-size: 0.9rem;
+        }
+
+        .rank-num { font-weight: bold; width: 30px; color: #747d8c; }
+        .rank-1 .rank-num { color: #ffd32a; font-size: 1.1em; }
+        .rank-2 .rank-num { color: #d2d6de; font-size: 1.05em; }
+        .rank-3 .rank-num { color: #ff7f50; font-size: 1.05em; }
+
+        .rank-time { font-weight: bold; color: var(--text-color); }
+        .rank-date { font-size: 0.75rem; color: #a4b0be; }
+
+    </style>
+</head>
+<body>
+
+<div class="main-container">
+    <h1>⚡ 反應力挑戰 ⚡</h1>
+    
+    <div class="status-bar" id="status-text">準備好了嗎？</div>
+
+    <div class="grid-container" id="grid"></div>
+
+    <div class="controls">
+        <button id="start-btn" class="btn" onclick="startGame()">開始測試</button>
+    </div>
+
+    <div id="capture-area">
+        <div id="current-result-board" class="results-container">
+            <h3>本次測試結果</h3>
+            <div id="result-list"></div>
+            <div class="average-score-box" id="average-score"></div>
+        </div>
+
+        <div id="leaderboard-board" class="results-container">
+            <h3>🏆 歷史 TOP 10</h3>
+            <ul id="leaderboard-list" class="leaderboard-list"></ul>
+        </div>
+        
+        <div style="text-align: center; font-size: 0.8rem; color: #999; margin-top: 10px;">
+            Challenge your reaction speed!
+        </div>
+    </div>
+
+    <button id="screenshot-btn" class="btn" style="display: none;" onclick="takeScreenshot()">
+        📸 截圖成績單 (複製到剪貼簿)
+    </button>
+</div>
+
+<script>
+    // --- 變數與 DOM ---
+    const gridContainer = document.getElementById('grid');
+    const statusText = document.getElementById('status-text');
+    const startBtn = document.getElementById('start-btn');
+    const currentResultBoard = document.getElementById('current-result-board');
+    const resultList = document.getElementById('result-list');
+    const averageScoreDiv = document.getElementById('average-score');
+    const leaderboardList = document.getElementById('leaderboard-list');
+    const screenshotBtn = document.getElementById('screenshot-btn');
+    const captureArea = document.getElementById('capture-area');
+
+    // 修改: 總回合數改為 7
+    const TOTAL_ROUNDS = 7;
+    let currentRound = 0;
+    let reactionTimes = [];
+    let startTime = 0;
+    let isWaitingForClick = false;
+    let activeCellIndex = -1;
+    let timer = null;
+    // 更改 Key 以區隔舊版成績 (因為計算方式不同了)
+    const STORAGE_KEY = 'reaction_game_scores_v2_trimmed'; 
+
+    // --- 初始化 ---
+    function init() {
+        initGrid();
+        renderLeaderboard();
+    }
+
+    function initGrid() {
+        gridContainer.innerHTML = '';
+        for (let i = 0; i < 9; i++) {
+            let cell = document.createElement('div');
+            cell.classList.add('cell');
+            cell.addEventListener('pointerdown', (e) => {
+                e.preventDefault(); 
+                handleCellClick(i);
+            });
+            gridContainer.appendChild(cell);
+        }
+    }
+
+    // --- 遊戲邏輯 ---
+    function startGame() {
+        currentRound = 0;
+        reactionTimes = [];
+        startBtn.disabled = true;
+        startBtn.textContent = "測試進行中...";
+        currentResultBoard.style.display = 'none';
+        screenshotBtn.style.display = 'none';
+        
+        document.querySelectorAll('.cell').forEach(c => c.classList.remove('active'));
+        nextRound();
+    }
+
+    function nextRound() {
+        if (currentRound >= TOTAL_ROUNDS) {
+            endGame();
+            return;
+        }
+        currentRound++;
+        statusText.innerHTML = `<span style="color:#747d8c">Round ${currentRound}/${TOTAL_ROUNDS}</span> - 等待亮燈...`;
+        isWaitingForClick = false;
+        document.querySelectorAll('.cell').forEach(c => c.classList.remove('active'));
+
+        const randomDelay = Math.floor(Math.random() * 1700) + 800;
+        timer = setTimeout(activateRandomCell, randomDelay);
+    }
+
+    function activateRandomCell() {
+        const cells = document.querySelectorAll('.cell');
+        let randomIndex;
+        do { randomIndex = Math.floor(Math.random() * 9); } 
+        while (randomIndex === activeCellIndex && Math.random() > 0.5);
+        
+        activeCellIndex = randomIndex;
+        cells[randomIndex].classList.add('active');
+        startTime = performance.now();
+        isWaitingForClick = true;
+        statusText.innerHTML = `<span style="color: var(--secondary-color)">🔥 快按! 🔥</span>`;
+    }
+
+    function handleCellClick(index) {
+        if (!isWaitingForClick) return;
+        if (index === activeCellIndex) {
+            const endTime = performance.now();
+            const reactionTime = Math.round(endTime - startTime);
+            reactionTimes.push(reactionTime);
+            isWaitingForClick = false;
+            document.querySelectorAll('.cell')[activeCellIndex].classList.remove('active');
+            statusText.textContent = `${reactionTime} ms`;
+            setTimeout(nextRound, 400);
+        }
+    }
+
+    function endGame() {
+        startBtn.disabled = false;
+        startBtn.textContent = "再次挑戰";
+        statusText.innerHTML = "🎉 測試完成!";
+        showCurrentResults();
+        saveAndUpdateLeaderboard();
+        screenshotBtn.style.display = 'flex';
+        // 為了讓使用者看到結果，平滑滾動
+        currentResultBoard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    // --- 新增計算邏輯: 去頭去尾平均 ---
+    function calculateTrimmedScore(times) {
+        if (times.length < 3) return { avg: 0, minIdx: -1, maxIdx: -1 };
+        
+        // 找出最大值和最小值的索引 (如果有多個相同值，這裡只抓第一個遇到的)
+        let minVal = Math.min(...times);
+        let maxVal = Math.max(...times);
+        
+        // 為了在列表中標示，我們需要具體的 index
+        // 注意：這裡只會標記第一個出現的最小值和最大值
+        let minIdx = times.indexOf(minVal);
+        let maxIdx = times.indexOf(maxVal);
+
+        // 複製一份陣列進行排序計算
+        let sorted = [...times].sort((a, b) => a - b);
+        // 去掉頭尾
+        let trimmed = sorted.slice(1, sorted.length - 1);
+        let total = trimmed.reduce((a, b) => a + b, 0);
+        let avg = Math.round(total / trimmed.length);
+
+        return { avg, minIdx, maxIdx };
+    }
+
+    function showCurrentResults() {
+        currentResultBoard.style.display = 'block';
+        resultList.innerHTML = '';
+        
+        // 取得計算結果
+        const { avg, minIdx, maxIdx } = calculateTrimmedScore(reactionTimes);
+
+        reactionTimes.forEach((time, index) => {
+            const item = document.createElement('div');
+            item.classList.add('result-item');
+            
+            // 標記最高和最低分 (視覺上變灰或刪除線)
+            let isExcluded = (index === minIdx || index === maxIdx);
+            if (isExcluded) {
+                item.classList.add('excluded');
+            }
+
+            let roundText = `Round ${index + 1}`;
+            if (index === minIdx) roundText += " (最快)";
+            if (index === maxIdx) roundText += " (最慢)";
+
+            item.innerHTML = `<span>${roundText}</span> <span>${time} ms</span>`;
+            resultList.appendChild(item);
+        });
+
+        averageScoreDiv.innerHTML = `
+            平均反應時間<br>
+            <strong>${avg} ms</strong>
+            <div class="average-note">(去除最快與最慢成績)</div>
+        `;
+    }
+
+    // --- 排行榜 (LocalStorage) ---
+    function formatDateTime(timestamp) {
+        const date = new Date(timestamp);
+        return date.toLocaleString('zh-TW', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false });
+    }
+
+    function saveAndUpdateLeaderboard() {
+        // 使用相同的去頭去尾邏輯計算分數
+        const { avg } = calculateTrimmedScore(reactionTimes);
+        
+        const newScore = { avgTime: avg, timestamp: new Date().getTime() };
+        let scores = JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
+        scores.push(newScore);
+        scores.sort((a, b) => a.avgTime - b.avgTime);
+        scores = scores.slice(0, 10);
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(scores));
+        renderLeaderboard();
+    }
+
+    function renderLeaderboard() {
+        const scores = JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
+        leaderboardList.innerHTML = '';
+        if (scores.length === 0) {
+            leaderboardList.innerHTML = '<li style="text-align:center; padding:10px; color:#999;">尚無紀錄，快來挑戰!</li>';
+            return;
+        }
+        scores.forEach((score, index) => {
+            const li = document.createElement('li');
+            li.classList.add('leaderboard-item', `rank-${index + 1}`);
+            li.innerHTML = `
+                <div style="display:flex; align-items:center;">
+                    <span class="rank-num">${index + 1}.</span>
+                    <span class="rank-time">${score.avgTime} ms</span>
+                </div>
+                <span class="rank-date">${formatDateTime(score.timestamp)}</span>
+            `;
+            leaderboardList.appendChild(li);
+        });
+    }
+
+    // --- 截圖功能 (修正版) ---
+    async function takeScreenshot() {
+        const originalBtnText = screenshotBtn.innerHTML;
+        screenshotBtn.innerHTML = '⏳ 處理中...';
+        screenshotBtn.disabled = true;
+
+        try {
+            const canvas = await html2canvas(captureArea, {
+                scale: 2, 
+                backgroundColor: '#f0f2f5', 
+                useCORS: true,
+                width: captureArea.scrollWidth, 
+                height: captureArea.scrollHeight,
+                scrollX: 0,
+                scrollY: 0,
+                x: 0, 
+                y: 0
+            });
+
+            canvas.toBlob(async (blob) => {
+                if (!blob) throw new Error('Canvas Error');
+                
+                if (navigator.clipboard && navigator.clipboard.write) {
+                    try {
+                        const item = new ClipboardItem({ 'image/png': blob });
+                        await navigator.clipboard.write([item]);
+                        screenshotBtn.innerHTML = '✅ 已複製!';
+                    } catch (err) {
+                        fallbackDownload(canvas);
+                    }
+                } else {
+                    fallbackDownload(canvas);
+                }
+                
+                setTimeout(() => {
+                    screenshotBtn.innerHTML = originalBtnText;
+                    screenshotBtn.disabled = false;
+                }, 3000);
+
+            }, 'image/png');
+
+        } catch (err) {
+            console.error('Screenshot failed:', err);
+            screenshotBtn.innerHTML = '❌ 失敗';
+            screenshotBtn.disabled = false;
+        }
+    }
+
+    function fallbackDownload(canvas) {
+        const link = document.createElement('a');
+        link.download = `反應力成績_${new Date().getTime()}.png`;
+        link.href = canvas.toDataURL('image/png');
+        link.click();
+        screenshotBtn.innerHTML = '✅ 已下載圖片';
+    }
+
+    init();
+</script>
+</body>
+</html>
